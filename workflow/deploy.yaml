@@ -1,4 +1,4 @@
-name: Deploy to AWS ECS
+name: Deploy to ECS
 
 on:
   push:
@@ -8,36 +8,51 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: Log in to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
 
-    - name: Build, tag, and push image to Amazon ECR
+    - name: Login to Amazon ECR
       env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: hello-world-nodejs
-        IMAGE_TAG: latest
+        AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-    - name: Create ECS task definition
+    - name: Build and push Docker image
+      env:
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      run: |
+        docker build -t $ECR_REPOSITORY:latest .
+        docker tag $ECR_REPOSITORY:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:latest
+        docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:latest
+
+    - name: Register task definition in ECS
       id: task-def
-      uses: aws-actions/amazon-ecs-render-task-definition@v1
-      with:
-        task-definition: task-definition.json
-        container-name: hello-world-nodejs
-        image: ${{ steps.login-ecr.outputs.registry }}/hello-world-nodejs:latest
+      env:
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+      run: |
+        TASK_TEMPLATE=$(cat task-definition.json)
+        TASK_DEFINITION=$(echo "$TASK_TEMPLATE" | sed -e "s|<IMAGE>|${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:latest|g")
+        echo "$TASK_DEFINITION" > task-definition.json
+        aws ecs register-task-definition \
+          --cli-input-json file://task-definition.json
 
-    - name: Deploy to Amazon ECS service
-      id: deploy-ecs
-      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-      with:
-        cluster: hello-world-cluster
-        service: hello-world-service
-        task-definition: ${{ steps.task-def.outputs.task-definition }}
+    - name: Deploy to ECS
+      env:
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+        ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+        ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+        ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION }}
+      run: |
+        aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE \
+          --force-new-deployment
