@@ -5,7 +5,7 @@
   "containerDefinitions": [
     {
       "name": "hello-world-nodejs",
-      "image": "your-account-id.dkr.ecr.region.amazonaws.com/hello-world-nodejs:latest",
+      "image": "public.ecr.aws/x2n6j0i6/hello-world-nodejs",
       "essential": true,
       "portMappings": [
         {
