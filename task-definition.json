@@ -5,7 +5,7 @@
   "containerDefinitions": [
     {
       "name": "hello-world-nodejs",
-      "image": "public.ecr.aws/x2n6j0i6/hello-world-nodejs",
+      "image": "<IMAGE>",
       "essential": true,
       "portMappings": [
         {
